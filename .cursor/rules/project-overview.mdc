@@ -1,0 +1,49 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# PDF Kit Server - Project Overview
+
+## Project Purpose
+This is a **PDF Kit Server** - a self-hosted, stateless backend service built with NestJS that provides real-time document conversion between PDF and Microsoft Office formats (Word, Excel, PowerPoint). The service is optimized for mobile applications with in-memory processing and no data persistence.
+
+## Architecture Overview
+The application follows a **Stateless Real-time Processing** architecture:
+- **API Server**: Handles HTTP requests with file uploads
+- **In-Memory Processing**: All conversions happen in RAM without disk storage
+- **Synchronous Response**: Immediate results returned to clients
+- **Mobile-Optimized**: Designed for mobile app integration
+
+## Key Features
+- **Bidirectional Conversion**: PDF ↔ Office formats (Word, Excel, PowerPoint)
+- **Real-time Processing**: Results in < 30 seconds
+- **Security First**: No data persistence, memory-only processing
+- **Resource Efficient**: Optimized memory usage with automatic cleanup
+- **Rate Limited**: Built-in throttling and concurrency control
+
+## Technology Stack
+- **Framework**: NestJS with TypeScript
+- **Conversion Engine**: LibreOffice Headless + PyMuPDF
+- **File Handling**: Multer with memory storage
+- **Validation**: Class-validator with DTOs
+- **Monitoring**: Winston logging + Health checks
+- **Containerization**: Docker with Alpine Linux
+
+## Project Structure
+The main application entry point is [main.ts](mdc:src/main.ts), which configures the NestJS application with memory limits, CORS, and global pipes. The core application module is defined in [app.module.ts](mdc:src/app.module.ts), which imports all feature modules and services.
+
+## Configuration Files
+- [package.json](mdc:package.json): Dependencies and scripts
+- [tsconfig.json](mdc:tsconfig.json): TypeScript configuration
+- [nest-cli.json](mdc:nest-cli.json): NestJS CLI configuration
+- [docker-compose.yml](mdc:docker-compose.yml): Container orchestration
+- [Dockerfile](mdc:Dockerfile): Container build instructions
+
+## Development Guidelines
+- Follow NestJS conventions and patterns
+- Use TypeScript strict mode
+- Implement proper error handling and validation
+- Maintain memory efficiency in all operations
+- Add comprehensive logging for debugging
+- Write unit tests for all services and controllers

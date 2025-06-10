@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  pdf-kit-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: pdf-kit-server
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - NODE_OPTIONS=--max-old-space-size=8192
+      - MAX_FILE_SIZE_MB=100
+      - MAX_CONCURRENT_CONVERSIONS=3
+      - CONVERSION_TIMEOUT_SECONDS=30
+      - RATE_LIMIT_PER_HOUR=50
+      - LIBREOFFICE_PATH=/usr/bin/libreoffice
+      - LIBREOFFICE_TIMEOUT=30000
+      - LOG_LEVEL=info
+      - LOG_FILE_PATH=./logs/app.log
+      - HEALTH_CHECK_ENABLED=true
+      - CORS_ORIGIN=*
+      - CORS_METHODS=GET,HEAD,PUT,PATCH,POST,DELETE
+      - CORS_CREDENTIALS=false
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '8'
+        reservations:
+          memory: 8G
+          cpus: '4' 

@@ -1,0 +1,148 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# NestJS Patterns and Conventions
+
+## Module Structure
+This project follows NestJS modular architecture with feature-based modules:
+
+### Core Modules
+- **AppModule** ([app.module.ts](mdc:src/app.module.ts)): Root module with global configuration
+- **HealthModule**: Health check endpoints for monitoring
+- **FormatsModule**: Document format conversion services
+- **ConfigModule**: Global configuration management
+
+### Module Organization
+```
+src/
+├── modules/           # Feature modules
+│   ├── health/       # Health check module
+│   ├── formats/      # Document format handling
+│   └── conversion/   # Conversion logic
+├── services/         # Shared services
+├── common/           # Shared utilities
+│   ├── decorators/   # Custom decorators
+│   ├── pipes/        # Validation pipes
+│   ├── interceptors/ # Request/response interceptors
+│   ├── filters/      # Exception filters
+│   └── guards/       # Authentication guards
+└── config/           # Configuration files
+```
+
+## Service Patterns
+
+### Memory Management Service
+The [memory-monitor.service.ts](mdc:src/services/memory-monitor.service.ts) handles memory monitoring and cleanup for file processing operations.
+
+### Configuration Services
+- **Winston Config** ([winston.config.ts](mdc:src/config/winston.config.ts)): Logging configuration
+- **Multer Config** ([multer.config.ts](mdc:src/config/multer.config.ts)): File upload configuration
+
+## Controller Patterns
+
+### File Upload Controllers
+Use `@UseInterceptors(FileInterceptor)` with memory storage:
+```typescript
+@Post('convert')
+@UseInterceptors(FileInterceptor('file', {
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }
+}))
+async convertFile(@UploadedFile() file: Express.Multer.File) {
+  // Process file in memory
+}
+```
+
+### Rate Limiting
+Apply `@Throttle()` decorator for API rate limiting:
+```typescript
+@Throttle({ default: { limit: 10, ttl: 60000 } })
+@Controller('api/v1/convert')
+export class ConversionController {}
+```
+
+## Validation Patterns
+
+### DTO Classes
+Use class-validator decorators for request validation:
+```typescript
+export class ConvertFileDto {
+  @IsString()
+  @IsIn(['pdf', 'docx', 'xlsx', 'pptx'])
+  targetFormat: string;
+
+  @IsOptional()
+  @IsBoolean()
+  preserveFormatting?: boolean;
+}
+```
+
+### Global Validation Pipe
+Configured in [main.ts](mdc:src/main.ts) with:
+- `whitelist: true` - Strip unknown properties
+- `forbidNonWhitelisted: true` - Reject unknown properties
+- `transform: true` - Auto-transform types
+
+## Error Handling
+
+### Global Exception Filter
+The [HttpExceptionFilter](mdc:src/common/filters/http-exception.filter.ts) provides consistent error responses across the application.
+
+### Custom Exceptions
+Create domain-specific exceptions for conversion errors:
+```typescript
+export class ConversionFailedException extends HttpException {
+  constructor(format: string, reason: string) {
+    super(`Conversion to ${format} failed: ${reason}`, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+}
+```
+
+## Interceptor Patterns
+
+### Concurrency Control
+Implement request concurrency limits to prevent memory overflow:
+```typescript
+@Injectable()
+export class ConcurrencyInterceptor implements NestInterceptor {
+  private activeRequests = 0;
+  private readonly maxConcurrent = 3;
+  
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    if (this.activeRequests >= this.maxConcurrent) {
+      throw new TooManyRequestsException();
+    }
+    // Handle request
+  }
+}
+```
+
+### Memory Cleanup
+Ensure proper cleanup after file processing:
+```typescript
+@Injectable()
+export class CleanupInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    return next.handle().pipe(
+      finalize(() => {
+        // Cleanup memory buffers
+        if (global.gc) global.gc();
+      })
+    );
+  }
+}
+```
+
+## Testing Patterns
+
+### Unit Tests
+- Test files should be co-located with source files (`.spec.ts`)
+- Use NestJS testing utilities for dependency injection
+- Mock external services and file operations
+
+### Integration Tests
+- Place in `/test` directory
+- Test complete request/response cycles
+- Validate file conversion accuracy

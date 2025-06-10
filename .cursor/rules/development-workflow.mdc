@@ -1,0 +1,326 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Development Workflow and Deployment
+
+## Development Scripts
+The project uses npm scripts defined in [package.json](mdc:package.json) for development workflow:
+
+### Core Development Commands
+```bash
+# Development
+npm run start:dev     # Start with hot reload
+npm run start:debug   # Start with debugging enabled
+npm run build         # Build for production
+npm run start:prod    # Start production build
+
+# Code Quality
+npm run lint          # ESLint with auto-fix
+npm run format        # Prettier formatting
+npm run test          # Run unit tests
+npm run test:watch    # Run tests in watch mode
+npm run test:cov      # Run tests with coverage
+npm run test:e2e      # Run end-to-end tests
+```
+
+### Development Environment Setup
+```bash
+# Install dependencies
+npm install
+
+# Set up environment variables
+cp .env.example .env.local
+
+# Start development server
+npm run start:dev
+```
+
+## Code Quality Standards
+
+### ESLint Configuration
+The project uses [eslint.config.mjs](mdc:eslint.config.mjs) with:
+- **TypeScript ESLint**: Strict TypeScript rules
+- **Prettier Integration**: Code formatting consistency
+- **NestJS Rules**: Framework-specific linting
+- **Auto-fix**: Automatic code corrections
+
+### Prettier Configuration
+Formatting rules in [.prettierrc](mdc:.prettierrc):
+```json
+{
+  "singleQuote": true,
+  "trailingComma": "all",
+  "tabWidth": 2,
+  "semi": true
+}
+```
+
+### TypeScript Configuration
+- **Strict Mode**: Enabled in [tsconfig.json](mdc:tsconfig.json)
+- **Build Config**: Separate [tsconfig.build.json](mdc:tsconfig.build.json)
+- **Path Mapping**: Configured for clean imports
+- **Decorators**: Enabled for NestJS decorators
+
+## Testing Strategy
+
+### Unit Testing
+```typescript
+// Example test structure
+describe('ConversionService', () => {
+  let service: ConversionService;
+  let mockMemoryMonitor: jest.Mocked<MemoryMonitorService>;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ConversionService,
+        {
+          provide: MemoryMonitorService,
+          useValue: createMockMemoryMonitor(),
+        },
+      ],
+    }).compile();
+
+    service = module.get<ConversionService>(ConversionService);
+    mockMemoryMonitor = module.get(MemoryMonitorService);
+  });
+
+  it('should convert PDF to DOCX', async () => {
+    const mockFile = createMockFile('test.pdf', 'application/pdf');
+    const result = await service.convertPdfToDocx(mockFile.buffer);
+    
+    expect(result).toBeDefined();
+    expect(result.length).toBeGreaterThan(0);
+  });
+});
+```
+
+### Integration Testing
+```typescript
+// E2E test example
+describe('ConversionController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  it('/api/v1/formats/convert (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/api/v1/formats/convert')
+      .attach('file', 'test/fixtures/sample.pdf')
+      .field('targetFormat', 'docx')
+      .expect(200)
+      .expect((res) => {
+        expect(res.headers['content-type']).toContain('application/octet-stream');
+      });
+  });
+});
+```
+
+### Test Coverage Requirements
+- **Minimum Coverage**: 80% for all modules
+- **Critical Paths**: 95% coverage for conversion logic
+- **Error Handling**: 100% coverage for error scenarios
+- **Memory Management**: Full coverage for cleanup operations
+
+## Docker Development
+
+### Development Container
+```dockerfile
+# Development Dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install system dependencies for LibreOffice
+RUN apk add --no-cache \
+    libreoffice \
+    python3 \
+    py3-pip \
+    font-liberation
+
+# Copy package files
+COPY package*.json ./
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Development command
+CMD ["npm", "run", "start:dev"]
+```
+
+### Docker Compose for Development
+The [docker-compose.yml](mdc:docker-compose.yml) provides:
+- **Hot Reload**: Volume mounting for development
+- **Environment Variables**: Configurable settings
+- **Port Mapping**: Access to development server
+- **Health Checks**: Container health monitoring
+
+### Production Build
+```dockerfile
+# Multi-stage production build
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+
+FROM node:20-alpine AS production
+RUN apk add --no-cache libreoffice python3 py3-pip
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules
+COPY dist ./dist
+CMD ["node", "dist/main"]
+```
+
+## Environment Configuration
+
+### Environment Variables
+```bash
+# Server Configuration
+PORT=3000
+NODE_ENV=development
+
+# CORS Configuration
+CORS_ORIGIN=*
+CORS_METHODS=GET,HEAD,PUT,PATCH,POST,DELETE
+CORS_CREDENTIALS=false
+
+# File Processing
+MAX_FILE_SIZE=104857600  # 100MB
+MAX_CONCURRENT_CONVERSIONS=3
+CONVERSION_TIMEOUT=30000  # 30 seconds
+
+# Memory Management
+NODE_OPTIONS=--max-old-space-size=8192
+MEMORY_THRESHOLD=7516192768  # 7GB
+
+# Logging
+LOG_LEVEL=info
+LOG_FILE=logs/app.log
+```
+
+### Configuration Validation
+```typescript
+// config/env.validation.ts
+export const envValidationSchema = Joi.object({
+  PORT: Joi.number().default(3000),
+  NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
+  MAX_FILE_SIZE: Joi.number().default(104857600),
+  MAX_CONCURRENT_CONVERSIONS: Joi.number().default(3),
+  CONVERSION_TIMEOUT: Joi.number().default(30000),
+});
+```
+
+## Deployment Strategies
+
+### Production Deployment
+```bash
+# Build production image
+docker build -t pdf-kit-server:latest .
+
+# Run production container
+docker run -d \
+  --name pdf-kit-server \
+  -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e MAX_FILE_SIZE=104857600 \
+  --memory=16g \
+  --cpus=4 \
+  pdf-kit-server:latest
+```
+
+### Health Monitoring
+```bash
+# Health check script
+#!/bin/bash
+curl -f http://localhost:3000/api/v1/health || exit 1
+```
+
+### Scaling Considerations
+- **Horizontal Scaling**: Multiple container instances
+- **Load Balancing**: Nginx or cloud load balancer
+- **Memory Limits**: 16GB per container recommended
+- **CPU Allocation**: 4 cores minimum for optimal performance
+
+## CI/CD Pipeline
+
+### GitHub Actions Example
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:cov
+      - run: npm run build
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build Docker image
+        run: docker build -t pdf-kit-server:${{ github.sha }} .
+      - name: Push to registry
+        run: docker push pdf-kit-server:${{ github.sha }}
+```
+
+## Monitoring and Logging
+
+### Application Logging
+Winston configuration in [winston.config.ts](mdc:src/config/winston.config.ts):
+- **Structured Logging**: JSON format for production
+- **Log Levels**: Error, warn, info, debug
+- **File Rotation**: Daily log rotation
+- **Request Tracking**: Correlation IDs for requests
+
+### Performance Monitoring
+```typescript
+// Custom metrics collection
+@Injectable()
+export class MetricsService {
+  private conversionCounter = new Map<string, number>();
+  private processingTimes = new Map<string, number[]>();
+
+  recordConversion(format: string, processingTime: number) {
+    // Track conversion metrics
+    this.conversionCounter.set(format, (this.conversionCounter.get(format) || 0) + 1);
+    
+    const times = this.processingTimes.get(format) || [];
+    times.push(processingTime);
+    this.processingTimes.set(format, times.slice(-100)); // Keep last 100
+  }
+
+  getMetrics() {
+    return {
+      conversions: Object.fromEntries(this.conversionCounter),
+      averageProcessingTime: this.calculateAverages(),
+      memoryUsage: process.memoryUsage(),
+      uptime: process.uptime()
+    };
+  }
+}
+```

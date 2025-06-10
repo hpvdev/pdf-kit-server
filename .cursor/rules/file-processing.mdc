@@ -1,0 +1,210 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# File Processing and Memory Management
+
+## Memory-First Architecture
+This application processes all files in memory without disk storage for security and performance:
+
+### Memory Configuration
+The application is configured in [main.ts](mdc:src/main.ts) with:
+- **Node.js Heap**: 8GB (`--max-old-space-size=8192`)
+- **Request Limits**: 100MB for JSON and URL-encoded data
+- **File Upload Limits**: 100MB maximum file size
+
+### File Upload Configuration
+File uploads are handled through [multer.config.ts](mdc:src/config/multer.config.ts) with:
+- **Memory Storage**: `multer.memoryStorage()` - no disk writes
+- **Size Limits**: Configurable per file type
+- **MIME Type Validation**: Strict file type checking
+- **Security Headers**: Proper content-type validation
+
+## Conversion Engine Architecture
+
+### Supported Conversions
+The system supports bidirectional conversions:
+
+**PDF to Office Formats:**
+- PDF → Word (.docx) - Max 50MB
+- PDF → Excel (.xlsx) - Max 50MB  
+- PDF → PowerPoint (.pptx) - Max 50MB
+
+**Office to PDF Formats:**
+- Word (.docx) → PDF - Max 100MB
+- Excel (.xlsx) → PDF - Max 100MB
+- PowerPoint (.pptx) → PDF - Max 100MB
+
+### Conversion Tools
+- **LibreOffice Headless**: Office to PDF conversions
+- **PyMuPDF (fitz)**: PDF parsing and manipulation
+- **pdf2docx**: PDF to Word conversion
+- **unoconv**: Universal document converter
+
+## Memory Management Patterns
+
+### Buffer Management
+```typescript
+// Process files as buffers in memory
+const processFile = async (fileBuffer: Buffer, mimeType: string) => {
+  try {
+    // Conversion logic here
+    const result = await convertBuffer(fileBuffer, mimeType);
+    return result;
+  } finally {
+    // Explicit cleanup
+    fileBuffer = null;
+    if (global.gc) global.gc();
+  }
+};
+```
+
+### Memory Monitoring
+The [memory-monitor.service.ts](mdc:src/services/memory-monitor.service.ts) provides:
+- **Real-time Memory Tracking**: Monitor heap usage during conversions
+- **Memory Alerts**: Warnings when approaching limits
+- **Automatic Cleanup**: Garbage collection triggers
+- **Resource Limits**: Prevent memory overflow
+
+### Concurrency Control
+Limit concurrent file processing to prevent memory exhaustion:
+```typescript
+// Maximum 3 concurrent conversions
+private readonly maxConcurrentConversions = 3;
+private activeConversions = 0;
+
+async processConversion(file: Buffer): Promise<Buffer> {
+  if (this.activeConversions >= this.maxConcurrentConversions) {
+    throw new TooManyRequestsException('Server busy, try again later');
+  }
+  
+  this.activeConversions++;
+  try {
+    return await this.convert(file);
+  } finally {
+    this.activeConversions--;
+  }
+}
+```
+
+## File Validation Patterns
+
+### MIME Type Validation
+```typescript
+const allowedMimeTypes = {
+  'application/pdf': ['pdf'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['docx'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['xlsx'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['pptx']
+};
+```
+
+### File Size Validation
+```typescript
+const validateFileSize = (file: Express.Multer.File, maxSize: number) => {
+  if (file.size > maxSize) {
+    throw new PayloadTooLargeException(`File size exceeds ${maxSize / 1024 / 1024}MB limit`);
+  }
+};
+```
+
+### File Content Validation
+```typescript
+const validateFileContent = async (buffer: Buffer, expectedType: string) => {
+  // Check file headers/magic numbers
+  const fileType = await detectFileType(buffer);
+  if (fileType !== expectedType) {
+    throw new BadRequestException('File content does not match declared type');
+  }
+};
+```
+
+## Error Handling for File Operations
+
+### Conversion Errors
+```typescript
+export class ConversionError extends Error {
+  constructor(
+    public readonly sourceFormat: string,
+    public readonly targetFormat: string,
+    public readonly reason: string,
+    public readonly originalError?: Error
+  ) {
+    super(`Failed to convert ${sourceFormat} to ${targetFormat}: ${reason}`);
+  }
+}
+```
+
+### Memory Errors
+```typescript
+export class MemoryLimitError extends Error {
+  constructor(public readonly currentUsage: number, public readonly limit: number) {
+    super(`Memory limit exceeded: ${currentUsage}MB / ${limit}MB`);
+  }
+}
+```
+
+### Timeout Handling
+```typescript
+@Timeout(30000) // 30 second timeout
+async convertFile(file: Express.Multer.File): Promise<Buffer> {
+  // Conversion logic with automatic timeout
+}
+```
+
+## Response Patterns
+
+### Binary Response
+```typescript
+@Header('Content-Type', 'application/octet-stream')
+@Header('Content-Disposition', 'attachment; filename="converted.pdf"')
+async downloadConvertedFile(): Promise<StreamableFile> {
+  const buffer = await this.conversionService.convert();
+  return new StreamableFile(buffer);
+}
+```
+
+### Base64 Response
+```typescript
+async getConvertedFileBase64(): Promise<{ data: string; mimeType: string }> {
+  const buffer = await this.conversionService.convert();
+  return {
+    data: buffer.toString('base64'),
+    mimeType: 'application/pdf'
+  };
+}
+```
+
+## Performance Optimization
+
+### Streaming for Large Files
+```typescript
+import { Readable } from 'stream';
+
+const processLargeFile = async (fileStream: Readable): Promise<Readable> => {
+  // Process file in chunks to reduce memory footprint
+  return pipeline(fileStream, conversionTransform, outputStream);
+};
+```
+
+### Memory Pool Management
+```typescript
+class BufferPool {
+  private pools = new Map<number, Buffer[]>();
+  
+  getBuffer(size: number): Buffer {
+    const pool = this.pools.get(size) || [];
+    return pool.pop() || Buffer.allocUnsafe(size);
+  }
+  
+  returnBuffer(buffer: Buffer): void {
+    const size = buffer.length;
+    const pool = this.pools.get(size) || [];
+    if (pool.length < 10) { // Max 10 buffers per size
+      pool.push(buffer);
+      this.pools.set(size, pool);
+    }
+  }
+}
+```

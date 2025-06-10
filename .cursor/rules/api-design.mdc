@@ -1,0 +1,295 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# API Design and Mobile Optimization
+
+## API Architecture
+This service provides RESTful APIs optimized for mobile applications with real-time document conversion capabilities.
+
+### Base Configuration
+- **Base URL**: `/api/v1`
+- **Global Prefix**: Configured in [main.ts](mdc:src/main.ts)
+- **CORS**: Configurable origins for mobile app integration
+- **Rate Limiting**: 50 requests per hour per client
+
+### Core Endpoints Structure
+```
+GET  /api/v1/health          # Health check
+POST /api/v1/formats/convert # Document conversion
+GET  /api/v1/formats/info    # Supported formats info
+```
+
+## Mobile-Optimized Request/Response Patterns
+
+### File Upload Request
+```typescript
+// Multipart form-data for file uploads
+POST /api/v1/formats/convert
+Content-Type: multipart/form-data
+
+{
+  file: <binary_file_data>,
+  targetFormat: "pdf" | "docx" | "xlsx" | "pptx",
+  responseType?: "binary" | "base64",
+  preserveFormatting?: boolean,
+  quality?: "high" | "medium" | "low"
+}
+```
+
+### Response Formats
+
+#### Binary Response (Default)
+```typescript
+// Optimized for mobile file downloads
+Response Headers:
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="converted.pdf"
+Content-Length: <file_size>
+
+Body: <binary_file_data>
+```
+
+#### Base64 Response (Mobile-friendly)
+```typescript
+// For mobile apps that prefer base64 encoding
+{
+  "success": true,
+  "data": {
+    "content": "<base64_encoded_file>",
+    "mimeType": "application/pdf",
+    "filename": "converted.pdf",
+    "size": 1024000
+  },
+  "metadata": {
+    "originalFormat": "docx",
+    "targetFormat": "pdf",
+    "processingTime": 2.5,
+    "quality": "high"
+  }
+}
+```
+
+## Error Response Standards
+
+### Consistent Error Format
+```typescript
+{
+  "success": false,
+  "error": {
+    "code": "CONVERSION_FAILED",
+    "message": "Failed to convert DOCX to PDF",
+    "details": "Unsupported font detected in document",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "requestId": "req_123456789"
+  },
+  "suggestions": [
+    "Try using a different font",
+    "Reduce file complexity",
+    "Contact support if issue persists"
+  ]
+}
+```
+
+### HTTP Status Codes
+- `200 OK`: Successful conversion
+- `400 Bad Request`: Invalid file format or parameters
+- `413 Payload Too Large`: File size exceeds limits
+- `422 Unprocessable Entity`: Conversion failed
+- `429 Too Many Requests`: Rate limit exceeded
+- `500 Internal Server Error`: Server processing error
+
+## Request Validation Patterns
+
+### DTO Classes for Validation
+```typescript
+export class ConvertFileDto {
+  @IsString()
+  @IsIn(['pdf', 'docx', 'xlsx', 'pptx'])
+  targetFormat: string;
+
+  @IsOptional()
+  @IsIn(['binary', 'base64'])
+  responseType?: 'binary' | 'base64' = 'binary';
+
+  @IsOptional()
+  @IsBoolean()
+  preserveFormatting?: boolean = true;
+
+  @IsOptional()
+  @IsIn(['high', 'medium', 'low'])
+  quality?: 'high' | 'medium' | 'low' = 'high';
+}
+```
+
+### File Validation Middleware
+```typescript
+@Injectable()
+export class FileValidationPipe implements PipeTransform {
+  transform(file: Express.Multer.File): Express.Multer.File {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    // Validate file size
+    if (file.size > this.getMaxFileSize(file.mimetype)) {
+      throw new PayloadTooLargeException('File size exceeds limit');
+    }
+
+    // Validate MIME type
+    if (!this.isValidMimeType(file.mimetype)) {
+      throw new BadRequestException('Unsupported file type');
+    }
+
+    return file;
+  }
+}
+```
+
+## Mobile Performance Optimizations
+
+### Compression Support
+```typescript
+// Enable gzip compression for API responses
+app.use(compression({
+  filter: (req, res) => {
+    // Don't compress binary file responses
+    return req.headers['accept-encoding']?.includes('gzip') && 
+           !res.getHeader('content-type')?.includes('octet-stream');
+  }
+}));
+```
+
+### Chunked Transfer for Large Files
+```typescript
+@Get('download/:id')
+async downloadFile(@Param('id') id: string, @Res() res: Response) {
+  const fileStream = await this.conversionService.getFileStream(id);
+  
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  
+  fileStream.pipe(res);
+}
+```
+
+### Progress Tracking (Optional)
+```typescript
+// WebSocket endpoint for conversion progress
+@WebSocketGateway({ cors: true })
+export class ConversionGateway {
+  @SubscribeMessage('track-conversion')
+  handleConversionTracking(client: Socket, data: { requestId: string }) {
+    // Send progress updates to mobile client
+    this.conversionService.trackProgress(data.requestId, (progress) => {
+      client.emit('conversion-progress', {
+        requestId: data.requestId,
+        progress: progress.percentage,
+        stage: progress.currentStage
+      });
+    });
+  }
+}
+```
+
+## Security Headers for Mobile
+
+### CORS Configuration
+```typescript
+// In main.ts
+app.enableCors({
+  origin: [
+    'capacitor://localhost',
+    'ionic://localhost',
+    'http://localhost',
+    'https://your-mobile-app.com'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true
+});
+```
+
+### Security Headers
+```typescript
+app.use(helmet({
+  crossOriginEmbedderPolicy: false, // Allow mobile app embedding
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+}));
+```
+
+## Rate Limiting for Mobile Apps
+
+### Throttling Configuration
+```typescript
+// In app.module.ts
+ThrottlerModule.forRoot([
+  {
+    name: 'short',
+    ttl: 60000, // 1 minute
+    limit: 10,  // 10 requests per minute
+  },
+  {
+    name: 'long',
+    ttl: 3600000, // 1 hour
+    limit: 50,    // 50 requests per hour
+  },
+]),
+```
+
+### Custom Rate Limiting
+```typescript
+@Injectable()
+export class MobileRateLimitGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    const userAgent = request.headers['user-agent'];
+    
+    // Different limits for mobile vs web clients
+    if (this.isMobileClient(userAgent)) {
+      return this.checkMobileRateLimit(request);
+    }
+    
+    return this.checkWebRateLimit(request);
+  }
+}
+```
+
+## Health Check for Mobile Monitoring
+
+### Health Check Endpoint
+```typescript
+@Controller('health')
+export class HealthController {
+  @Get()
+  @HealthCheck()
+  check() {
+    return this.health.check([
+      () => this.http.pingCheck('api', 'http://localhost:3000/api/v1'),
+      () => this.memory.checkHeap('memory_heap', 7 * 1024 * 1024 * 1024), // 7GB
+      () => this.disk.checkStorage('storage', { path: '/', threshold: 0.9 }),
+    ]);
+  }
+
+  @Get('mobile')
+  async mobileHealthCheck() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      services: {
+        conversion: await this.checkConversionService(),
+        memory: this.getMemoryUsage(),
+        uptime: process.uptime()
+      }
+    };
+  }
+}
+```

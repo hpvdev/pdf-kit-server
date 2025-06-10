@@ -1,0 +1,387 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Security Guidelines and Best Practices
+
+## Security-First Architecture
+This PDF Kit Server implements a security-first approach with no data persistence and memory-only processing to ensure maximum privacy and security.
+
+### Core Security Principles
+- **No Data Persistence**: Files are never written to disk
+- **Memory-Only Processing**: All operations happen in RAM
+- **Automatic Cleanup**: Memory is cleared after each request
+- **Stateless Design**: No session or user data storage
+- **Input Validation**: Strict file type and size validation
+
+## File Upload Security
+
+### File Type Validation
+```typescript
+// Strict MIME type checking
+const ALLOWED_MIME_TYPES = {
+  'application/pdf': ['.pdf'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx']
+};
+
+// Magic number validation
+const validateFileHeader = (buffer: Buffer, expectedType: string): boolean => {
+  const signatures = {
+    pdf: [0x25, 0x50, 0x44, 0x46], // %PDF
+    docx: [0x50, 0x4B, 0x03, 0x04], // ZIP signature
+    xlsx: [0x50, 0x4B, 0x03, 0x04], // ZIP signature
+    pptx: [0x50, 0x4B, 0x03, 0x04]  // ZIP signature
+  };
+  
+  const signature = signatures[expectedType];
+  return signature.every((byte, index) => buffer[index] === byte);
+};
+```
+
+### File Size Limits
+Configured in [multer.config.ts](mdc:src/config/multer.config.ts):
+- **PDF to Office**: Maximum 50MB input files
+- **Office to PDF**: Maximum 100MB input files
+- **Memory Buffer Limits**: Prevent memory exhaustion attacks
+- **Request Timeout**: 30-second processing limit
+
+### Malicious File Detection
+```typescript
+@Injectable()
+export class FileSecurityService {
+  async scanFile(buffer: Buffer, mimeType: string): Promise<boolean> {
+    // Check for embedded executables
+    if (this.containsExecutableContent(buffer)) {
+      throw new BadRequestException('File contains potentially malicious content');
+    }
+
+    // Validate file structure
+    if (!await this.validateFileStructure(buffer, mimeType)) {
+      throw new BadRequestException('Invalid file structure detected');
+    }
+
+    // Check file size vs content ratio
+    if (this.suspiciousCompressionRatio(buffer)) {
+      throw new BadRequestException('Suspicious file compression detected');
+    }
+
+    return true;
+  }
+
+  private containsExecutableContent(buffer: Buffer): boolean {
+    // Check for common executable signatures
+    const executableSignatures = [
+      [0x4D, 0x5A], // PE executable
+      [0x7F, 0x45, 0x4C, 0x46], // ELF executable
+      [0xCA, 0xFE, 0xBA, 0xBE], // Mach-O executable
+    ];
+
+    return executableSignatures.some(signature =>
+      buffer.includes(Buffer.from(signature))
+    );
+  }
+}
+```
+
+## Memory Security
+
+### Buffer Management
+```typescript
+class SecureBufferManager {
+  private buffers = new Set<Buffer>();
+
+  createBuffer(size: number): Buffer {
+    const buffer = Buffer.allocUnsafe(size);
+    this.buffers.add(buffer);
+    return buffer;
+  }
+
+  secureCleanup(): void {
+    // Overwrite buffer contents before deallocation
+    this.buffers.forEach(buffer => {
+      buffer.fill(0); // Zero out memory
+    });
+    this.buffers.clear();
+    
+    // Force garbage collection
+    if (global.gc) {
+      global.gc();
+    }
+  }
+}
+```
+
+### Memory Limits and Monitoring
+The [memory-monitor.service.ts](mdc:src/services/memory-monitor.service.ts) implements:
+- **Real-time Memory Tracking**: Monitor heap usage
+- **Memory Leak Detection**: Identify memory growth patterns
+- **Automatic Cleanup**: Trigger cleanup when limits approached
+- **Circuit Breaker**: Stop processing when memory critical
+
+## Request Security
+
+### Rate Limiting
+Configured in [app.module.ts](mdc:src/app.module.ts):
+```typescript
+ThrottlerModule.forRoot([
+  {
+    name: 'short',
+    ttl: 60000,  // 1 minute
+    limit: 10,   // 10 requests per minute
+  },
+  {
+    name: 'long', 
+    ttl: 3600000, // 1 hour
+    limit: 50,    // 50 requests per hour
+  },
+])
+```
+
+### Input Sanitization
+```typescript
+@Injectable()
+export class InputSanitizationPipe implements PipeTransform {
+  transform(value: any): any {
+    if (typeof value === 'string') {
+      // Remove potentially dangerous characters
+      return value.replace(/[<>\"'%;()&+]/g, '');
+    }
+    return value;
+  }
+}
+
+// Apply to all string inputs
+@UsePipes(new InputSanitizationPipe())
+@Controller('api/v1/formats')
+export class FormatsController {}
+```
+
+### Request Validation
+```typescript
+export class ConvertFileDto {
+  @IsString()
+  @IsIn(['pdf', 'docx', 'xlsx', 'pptx'])
+  @Matches(/^[a-zA-Z0-9]+$/) // Only alphanumeric
+  targetFormat: string;
+
+  @IsOptional()
+  @IsBoolean()
+  preserveFormatting?: boolean;
+
+  @IsOptional()
+  @IsIn(['high', 'medium', 'low'])
+  quality?: 'high' | 'medium' | 'low';
+}
+```
+
+## CORS and Headers Security
+
+### CORS Configuration
+Configured in [main.ts](mdc:src/main.ts):
+```typescript
+app.enableCors({
+  origin: (origin, callback) => {
+    // Whitelist specific origins
+    const allowedOrigins = [
+      'https://your-mobile-app.com',
+      'capacitor://localhost',
+      'ionic://localhost'
+    ];
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false, // Disable credentials for security
+});
+```
+
+### Security Headers
+```typescript
+import helmet from 'helmet';
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
+}));
+```
+
+## Error Handling Security
+
+### Secure Error Responses
+```typescript
+@Catch()
+export class SecurityExceptionFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+
+    // Log full error details internally
+    this.logger.error('Security exception', {
+      error: exception,
+      url: request.url,
+      method: request.method,
+      ip: request.ip,
+      userAgent: request.get('User-Agent'),
+    });
+
+    // Return generic error to client (no sensitive info)
+    const status = exception instanceof HttpException 
+      ? exception.getStatus() 
+      : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    response.status(status).json({
+      success: false,
+      error: {
+        code: 'PROCESSING_ERROR',
+        message: 'An error occurred while processing your request',
+        timestamp: new Date().toISOString(),
+        requestId: request.headers['x-request-id'] || 'unknown'
+      }
+    });
+  }
+}
+```
+
+### Information Disclosure Prevention
+```typescript
+// Never expose internal paths or system information
+const sanitizeErrorMessage = (error: Error): string => {
+  const message = error.message;
+  
+  // Remove file paths
+  const pathRegex = /\/[^\s]+/g;
+  const sanitized = message.replace(pathRegex, '[PATH_REMOVED]');
+  
+  // Remove version numbers
+  const versionRegex = /v?\d+\.\d+\.\d+/g;
+  return sanitized.replace(versionRegex, '[VERSION_REMOVED]');
+};
+```
+
+## Logging Security
+
+### Secure Logging Configuration
+Winston configuration in [winston.config.ts](mdc:src/config/winston.config.ts):
+```typescript
+export const createWinstonLogger = () => {
+  return WinstonModule.createLogger({
+    transports: [
+      new winston.transports.File({
+        filename: 'logs/error.log',
+        level: 'error',
+        format: winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.errors({ stack: true }),
+          winston.format.json(),
+          // Remove sensitive data from logs
+          winston.format.printf(info => {
+            const sanitized = { ...info };
+            delete sanitized.password;
+            delete sanitized.token;
+            delete sanitized.authorization;
+            return JSON.stringify(sanitized);
+          })
+        ),
+      }),
+    ],
+  });
+};
+```
+
+### Audit Logging
+```typescript
+@Injectable()
+export class AuditLogger {
+  logFileProcessing(request: Request, file: Express.Multer.File, result: 'success' | 'failure') {
+    this.logger.info('File processing audit', {
+      timestamp: new Date().toISOString(),
+      ip: request.ip,
+      userAgent: request.get('User-Agent'),
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      result,
+      processingTime: Date.now() - request['startTime'],
+      requestId: request.headers['x-request-id']
+    });
+  }
+}
+```
+
+## Container Security
+
+### Dockerfile Security
+The [Dockerfile](mdc:Dockerfile) implements security best practices:
+- **Non-root User**: Run application as non-privileged user
+- **Minimal Base Image**: Alpine Linux for reduced attack surface
+- **No Secrets in Layers**: Environment variables only at runtime
+- **Read-only Filesystem**: Where possible, mount as read-only
+
+### Runtime Security
+```bash
+# Run container with security constraints
+docker run -d \
+  --name pdf-kit-server \
+  --user 1000:1000 \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=2g \
+  --security-opt=no-new-privileges:true \
+  --cap-drop=ALL \
+  --memory=16g \
+  --cpus=4 \
+  pdf-kit-server:latest
+```
+
+## Dependency Security
+
+### Package Vulnerability Scanning
+```bash
+# Regular security audits
+npm audit
+npm audit fix
+
+# Use npm-check-updates for dependency updates
+npx ncu -u
+```
+
+### Dependency Validation
+```typescript
+// Validate critical dependencies at startup
+const validateDependencies = () => {
+  const criticalPackages = ['@nestjs/core', 'multer', 'class-validator'];
+  
+  criticalPackages.forEach(pkg => {
+    try {
+      require.resolve(pkg);
+    } catch (error) {
+      throw new Error(`Critical dependency missing: ${pkg}`);
+    }
+  });
+};
+```
