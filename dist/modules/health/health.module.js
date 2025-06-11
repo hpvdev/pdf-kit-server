@@ -11,6 +11,8 @@ const common_1 = require("@nestjs/common");
 const terminus_1 = require("@nestjs/terminus");
 const health_controller_1 = require("./health.controller");
 const memory_monitor_service_1 = require("../../services/memory-monitor.service");
+const conversion_engine_service_1 = require("../../services/conversion-engine.service");
+const libreoffice_service_1 = require("../../services/libreoffice.service");
 let HealthModule = class HealthModule {
 };
 exports.HealthModule = HealthModule;
@@ -18,8 +20,16 @@ exports.HealthModule = HealthModule = __decorate([
     (0, common_1.Module)({
         imports: [terminus_1.TerminusModule],
         controllers: [health_controller_1.HealthController],
-        providers: [memory_monitor_service_1.MemoryMonitorService],
-        exports: [memory_monitor_service_1.MemoryMonitorService],
+        providers: [
+            memory_monitor_service_1.MemoryMonitorService,
+            conversion_engine_service_1.ConversionEngineService,
+            libreoffice_service_1.LibreOfficeService,
+        ],
+        exports: [
+            memory_monitor_service_1.MemoryMonitorService,
+            conversion_engine_service_1.ConversionEngineService,
+            libreoffice_service_1.LibreOfficeService,
+        ],
     })
 ], HealthModule);
 //# sourceMappingURL=health.module.js.map

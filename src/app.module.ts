@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './modules/health/health.module';
 import { FormatsModule } from './modules/formats/formats.module';
+import { ConversionModule } from './modules/conversion/conversion.module';
 import { MemoryMonitorService } from './services/memory-monitor.service';
 
 @Module({
@@ -22,6 +23,9 @@ import { MemoryMonitorService } from './services/memory-monitor.service';
     
     // Formats module
     FormatsModule,
+    
+    // Conversion module
+    ConversionModule,
     
     // Rate limiting module
     ThrottlerModule.forRoot([

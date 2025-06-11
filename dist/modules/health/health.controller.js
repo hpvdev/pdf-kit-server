@@ -13,16 +13,19 @@ exports.HealthController = void 0;
 const common_1 = require("@nestjs/common");
 const terminus_1 = require("@nestjs/terminus");
 const memory_monitor_service_1 = require("../../services/memory-monitor.service");
+const conversion_engine_service_1 = require("../../services/conversion-engine.service");
 let HealthController = class HealthController {
     health;
     memory;
     disk;
     memoryMonitor;
-    constructor(health, memory, disk, memoryMonitor) {
+    conversionEngine;
+    constructor(health, memory, disk, memoryMonitor, conversionEngine) {
         this.health = health;
         this.memory = memory;
         this.disk = disk;
         this.memoryMonitor = memoryMonitor;
+        this.conversionEngine = conversionEngine;
     }
     check() {
         const memoryStats = this.memoryMonitor.getMemoryStats();
@@ -33,13 +36,19 @@ let HealthController = class HealthController {
                 path: '/',
                 thresholdPercent: 0.9
             }),
-            () => Promise.resolve({
-                services: {
-                    status: 'up',
-                    libreoffice: 'available',
-                    conversion_engine: 'ready'
-                }
-            }),
+            async () => {
+                const engineInfo = await this.conversionEngine.getEngineInfo();
+                const isReady = await this.conversionEngine.isEngineReady();
+                return {
+                    services: {
+                        status: isReady ? 'up' : 'down',
+                        libreoffice: engineInfo.isAvailable ? 'available' : 'unavailable',
+                        libreoffice_version: engineInfo.libreOfficeVersion,
+                        conversion_engine: isReady ? 'ready' : 'not_ready',
+                        supported_formats: engineInfo.supportedFormats
+                    }
+                };
+            },
             () => Promise.resolve({
                 memory_usage: {
                     status: 'up',
@@ -49,15 +58,19 @@ let HealthController = class HealthController {
                     usage_percent: `${memoryStats.usagePercent.toFixed(1)}%`
                 }
             }),
-            () => Promise.resolve({
-                server_info: {
-                    status: 'up',
-                    active_conversions: this.memoryMonitor.getActiveConversions(),
-                    max_concurrent: 3,
-                    version: '2.0.0',
-                    timestamp: new Date().toISOString()
-                }
-            })
+            () => {
+                const conversionStats = this.conversionEngine.getConversionStats();
+                return Promise.resolve({
+                    server_info: {
+                        status: 'up',
+                        active_conversions: conversionStats.activeConversions,
+                        max_concurrent: conversionStats.maxConcurrentConversions,
+                        memory_usage_mb: Math.round(conversionStats.memoryUsage / 1024 / 1024),
+                        version: '2.0.0',
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            }
         ]);
     }
 };
@@ -74,6 +87,7 @@ exports.HealthController = HealthController = __decorate([
     __metadata("design:paramtypes", [terminus_1.HealthCheckService,
         terminus_1.MemoryHealthIndicator,
         terminus_1.DiskHealthIndicator,
-        memory_monitor_service_1.MemoryMonitorService])
+        memory_monitor_service_1.MemoryMonitorService,
+        conversion_engine_service_1.ConversionEngineService])
 ], HealthController);
 //# sourceMappingURL=health.controller.js.map

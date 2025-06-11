@@ -1,37 +1,72 @@
-import { IsString, IsEnum, IsOptional } from 'class-validator';
-
-export enum OutputFormat {
-  PDF = 'pdf',
-  DOCX = 'docx',
-  XLSX = 'xlsx',
-  PPTX = 'pptx',
-}
-
-export enum ResponseFormat {
-  BINARY = 'binary',
-  BASE64 = 'base64',
-}
-
-export enum Quality {
-  STANDARD = 'standard',
-  HIGH = 'high',
-}
+import { IsString, IsOptional, IsIn, IsNumber, IsBoolean, Min, Max } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class ConvertFileDto {
-  @IsEnum(OutputFormat, {
-    message: 'output_format must be one of: pdf, docx, xlsx, pptx'
+  @ApiProperty({
+    description: 'Target format for conversion',
+    enum: ['pdf', 'docx', 'xlsx', 'pptx'],
+    example: 'pdf',
   })
-  output_format: OutputFormat;
+  @IsString()
+  @IsIn(['pdf', 'docx', 'xlsx', 'pptx'])
+  targetFormat: string;
 
-  @IsOptional()
-  @IsEnum(ResponseFormat, {
-    message: 'response_format must be one of: binary, base64'
+  @ApiPropertyOptional({
+    description: 'Response format - binary (default) or base64',
+    enum: ['binary', 'base64'],
+    default: 'binary',
+    example: 'binary',
   })
-  response_format?: ResponseFormat = ResponseFormat.BINARY;
+  @IsOptional()
+  @IsString()
+  @IsIn(['binary', 'base64'])
+  responseFormat?: 'binary' | 'base64' = 'binary';
 
-  @IsOptional()
-  @IsEnum(Quality, {
-    message: 'quality must be one of: standard, high'
+  @ApiPropertyOptional({
+    description: 'Conversion quality setting',
+    enum: ['standard', 'high'],
+    default: 'standard',
+    example: 'standard',
   })
-  quality?: Quality = Quality.STANDARD;
+  @IsOptional()
+  @IsString()
+  @IsIn(['standard', 'high'])
+  quality?: 'standard' | 'high' = 'standard';
+
+  @ApiPropertyOptional({
+    description: 'Conversion timeout in milliseconds',
+    minimum: 5000,
+    maximum: 60000,
+    default: 30000,
+    example: 30000,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(5000)
+  @Max(60000)
+  @Transform(({ value }) => parseInt(value))
+  timeout?: number = 30000;
+
+  @ApiPropertyOptional({
+    description: 'Whether to preserve original formatting',
+    default: true,
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return value.toLowerCase() === 'true';
+    }
+    return Boolean(value);
+  })
+  preserveFormatting?: boolean = true;
+
+  @ApiProperty({
+    description: 'File to convert',
+    type: 'string',
+    format: 'binary',
+  })
+  file: any;
 } 

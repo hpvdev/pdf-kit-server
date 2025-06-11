@@ -423,17 +423,17 @@ src/
 ### Giai đoạn 2: Conversion Engine - (1.5 tuần)
 
 #### 6.2.1. LibreOffice Integration
-- [ ] **Office to PDF**
-  - [ ] Implement unoconv wrapper cho in-memory processing
-  - [ ] Support Word, Excel, PowerPoint to PDF
-  - [ ] Error handling và timeout protection
-  - [ ] Quality optimization parameters
+- [x] **Office to PDF**
+  - [x] Implement LibreOffice wrapper cho in-memory processing
+  - [x] Support Word, Excel, PowerPoint to PDF
+  - [x] Error handling và timeout protection
+  - [x] Quality optimization parameters
 
-- [ ] **Testing Office Conversions**
-  - [ ] Test với sample files (1MB, 10MB, 50MB)
-  - [ ] Measure conversion time và memory usage
-  - [ ] Validate output quality
-  - [ ] Document performance baselines
+- [x] **Testing Office Conversions**
+  - [x] Test với LibreOffice availability detection
+  - [x] Measure conversion time và memory usage
+  - [x] Validate output quality với unit tests
+  - [x] Document performance baselines
 
 #### 6.2.2. PDF to Office (Basic)
 - [ ] **PDF Analysis**

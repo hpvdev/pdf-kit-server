@@ -14,6 +14,7 @@ const app_controller_1 = require("./app.controller");
 const app_service_1 = require("./app.service");
 const health_module_1 = require("./modules/health/health.module");
 const formats_module_1 = require("./modules/formats/formats.module");
+const conversion_module_1 = require("./modules/conversion/conversion.module");
 const memory_monitor_service_1 = require("./services/memory-monitor.service");
 let AppModule = class AppModule {
 };
@@ -28,6 +29,7 @@ exports.AppModule = AppModule = __decorate([
             }),
             health_module_1.HealthModule,
             formats_module_1.FormatsModule,
+            conversion_module_1.ConversionModule,
             throttler_1.ThrottlerModule.forRoot([
                 {
                     ttl: 3600000,
