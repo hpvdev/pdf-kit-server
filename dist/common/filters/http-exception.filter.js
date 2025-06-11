@@ -27,13 +27,35 @@ let HttpExceptionFilter = HttpExceptionFilter_1 = class HttpExceptionFilter {
             status = exception.getStatus();
             const exceptionResponse = exception.getResponse();
             if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-                errorResponse = exceptionResponse;
+                if ('error' in exceptionResponse) {
+                    errorResponse = exceptionResponse;
+                }
+                else if ('message' in exceptionResponse) {
+                    errorResponse = {
+                        error: {
+                            code: this.getErrorCode(status),
+                            message: Array.isArray(exceptionResponse.message)
+                                ? exceptionResponse.message.join(', ')
+                                : exceptionResponse.message,
+                            details: exceptionResponse
+                        }
+                    };
+                }
+                else {
+                    errorResponse = {
+                        error: {
+                            code: this.getErrorCode(status),
+                            message: exception.message,
+                            details: exceptionResponse
+                        }
+                    };
+                }
             }
             else {
                 errorResponse = {
                     error: {
                         code: this.getErrorCode(status),
-                        message: exceptionResponse || exception.message,
+                        message: typeof exceptionResponse === 'string' ? exceptionResponse : exception.message,
                         details: {}
                     }
                 };
@@ -76,14 +98,34 @@ let HttpExceptionFilter = HttpExceptionFilter_1 = class HttpExceptionFilter {
                 };
             }
         }
+        if (!errorResponse.error) {
+            errorResponse.error = {
+                code: 'INTERNAL_SERVER_ERROR',
+                message: 'An unexpected error occurred',
+                details: {}
+            };
+        }
         errorResponse.error.details = {
             ...errorResponse.error.details,
             timestamp: new Date().toISOString(),
             path: request.url,
-            method: request.method
+            method: request.method,
+            request_id: this.generateRequestId(),
+            user_agent: request.headers['user-agent'] || 'unknown',
+            mobile_optimized: true,
         };
-        this.logger.error(`${request.method} ${request.url} - ${status} - ${JSON.stringify(errorResponse)}`, exception instanceof Error ? exception.stack : 'Unknown error');
-        response.status(status).json(errorResponse);
+        errorResponse.error.recovery_suggestions = this.getMobileRecoverySuggestions(status, exception);
+        const finalResponse = {
+            success: false,
+            error: errorResponse.error,
+            metadata: {
+                server_version: '2.0.0',
+                processing_time_ms: Date.now() - (request['startTime'] || Date.now()),
+                timestamp: new Date().toISOString(),
+            }
+        };
+        this.logger.error(`${request.method} ${request.url} - ${status} - ${JSON.stringify(finalResponse)}`, exception instanceof Error ? exception.stack : 'Unknown error');
+        response.status(status).json(finalResponse);
     }
     getErrorCode(status) {
         switch (status) {
@@ -106,6 +148,33 @@ let HttpExceptionFilter = HttpExceptionFilter_1 = class HttpExceptionFilter {
             default:
                 return 'INTERNAL_SERVER_ERROR';
         }
+    }
+    generateRequestId() {
+        return `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    getMobileRecoverySuggestions(status, exception) {
+        const suggestions = [];
+        switch (status) {
+            case common_1.HttpStatus.PAYLOAD_TOO_LARGE:
+                suggestions.push('Reduce file size by compressing the document', 'Split large documents into smaller parts', 'Use a different file format if possible', 'Check your internet connection stability');
+                break;
+            case common_1.HttpStatus.REQUEST_TIMEOUT:
+                suggestions.push('Try again with a smaller file', 'Check your internet connection', 'Ensure the app is running in the foreground', 'Contact support if the issue persists');
+                break;
+            case common_1.HttpStatus.TOO_MANY_REQUESTS:
+                suggestions.push('Wait a few minutes before trying again', 'Reduce the number of simultaneous conversions', 'Consider upgrading to a premium plan');
+                break;
+            case common_1.HttpStatus.BAD_REQUEST:
+                suggestions.push('Check that the file format is supported', 'Ensure the file is not corrupted', 'Verify all required parameters are provided', 'Try uploading the file again');
+                break;
+            case common_1.HttpStatus.SERVICE_UNAVAILABLE:
+                suggestions.push('The service is temporarily unavailable', 'Try again in a few minutes', 'Check the app status page', 'Contact support if the issue continues');
+                break;
+            default:
+                suggestions.push('Try the operation again', 'Restart the app if the problem persists', 'Check your internet connection', 'Contact support with the error details');
+                break;
+        }
+        return suggestions;
     }
 };
 exports.HttpExceptionFilter = HttpExceptionFilter;

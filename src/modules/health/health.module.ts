@@ -1,22 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './health.controller';
-import { MemoryMonitorService } from '../../services/memory-monitor.service';
-import { ConversionEngineService } from '../../services/conversion-engine.service';
-import { LibreOfficeService } from '../../services/libreoffice.service';
+import { ConversionModule } from '../conversion/conversion.module';
 
 @Module({
-  imports: [TerminusModule],
+  imports: [
+    TerminusModule,
+    ConversionModule,
+  ],
   controllers: [HealthController],
-  providers: [
-    MemoryMonitorService,
-    ConversionEngineService,
-    LibreOfficeService,
-  ],
-  exports: [
-    MemoryMonitorService,
-    ConversionEngineService,
-    LibreOfficeService,
-  ],
 })
 export class HealthModule {} 

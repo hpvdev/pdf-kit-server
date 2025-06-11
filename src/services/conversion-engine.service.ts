@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { LibreOfficeService, ConversionOptions, ConversionResult } from './libreoffice.service';
 import { MemoryMonitorService } from './memory-monitor.service';
+import { PdfAnalysisService } from './pdf-analysis.service';
 
 export interface FileConversionRequest {
   buffer: Buffer;
@@ -30,6 +31,7 @@ export class ConversionEngineService {
   constructor(
     private readonly libreOfficeService: LibreOfficeService,
     private readonly memoryMonitor: MemoryMonitorService,
+    private readonly pdfAnalysisService: PdfAnalysisService,
   ) {}
 
   /**
@@ -57,6 +59,8 @@ export class ConversionEngineService {
       // Route to appropriate conversion method
       if (request.targetFormat === 'pdf') {
         result = await this.convertOfficeToPdf(request);
+      } else if (['docx', 'xlsx', 'pptx'].includes(request.targetFormat)) {
+        result = await this.convertPdfToOffice(request);
       } else {
         throw new BadRequestException(`Conversion to ${request.targetFormat} not yet implemented`);
       }
@@ -103,6 +107,43 @@ export class ConversionEngineService {
       ...result,
       targetFormat: 'pdf',
       sourceFormat: this.getFormatFromMimeType(request.mimeType),
+    };
+  }
+
+  /**
+   * Convert PDF documents to Office formats using PDF analysis and reconstruction
+   */
+  private async convertPdfToOffice(request: FileConversionRequest): Promise<ConversionEngineResult> {
+    if (request.mimeType !== 'application/pdf') {
+      throw new BadRequestException(`Expected PDF format, got: ${request.mimeType}`);
+    }
+
+    // Analyze PDF structure and content
+    const analysisResult = await this.pdfAnalysisService.analyzePdf(request.buffer);
+
+    this.logger.log(`PDF analysis completed: ${analysisResult.pageCount} pages, ${analysisResult.textBlocks.length} text blocks`);
+
+    // Convert based on target format
+    let result: ConversionResult;
+
+    switch (request.targetFormat) {
+      case 'docx':
+        result = await this.pdfAnalysisService.convertToDocx(request.buffer, analysisResult, request.options);
+        break;
+      case 'xlsx':
+        result = await this.pdfAnalysisService.convertToXlsx(request.buffer, analysisResult, request.options);
+        break;
+      case 'pptx':
+        result = await this.pdfAnalysisService.convertToPptx(request.buffer, analysisResult, request.options);
+        break;
+      default:
+        throw new BadRequestException(`Unsupported target format: ${request.targetFormat}`);
+    }
+
+    return {
+      ...result,
+      targetFormat: request.targetFormat,
+      sourceFormat: 'pdf',
     };
   }
 
@@ -247,6 +288,24 @@ export class ConversionEngineService {
         to: 'pdf',
         maxFileSizeMB: 100,
         estimatedTimeSeconds: '5-20',
+      },
+      {
+        from: ['pdf'],
+        to: 'docx',
+        maxFileSizeMB: 50,
+        estimatedTimeSeconds: '5-30',
+      },
+      {
+        from: ['pdf'],
+        to: 'xlsx',
+        maxFileSizeMB: 50,
+        estimatedTimeSeconds: '5-30',
+      },
+      {
+        from: ['pdf'],
+        to: 'pptx',
+        maxFileSizeMB: 50,
+        estimatedTimeSeconds: '5-30',
       },
     ];
   }
